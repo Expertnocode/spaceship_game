@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Jeu de Vaisseau Spatial</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+        }
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            background-color: black;
+        }
+        #shootButton {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            width: 60px;
+            height: 60px;
+            background-color: red;
+            border: none;
+            border-radius: 50%;
+            font-size: 20px;
+            color: white;
+        }
+        #replayButton {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 10px 20px;
+            font-size: 18px;
+            display: none;
+        }
+        #score, #weaponLevel {
+            position: fixed;
+            font-size: 20px;
+            color: white;
+        }
+        #score {
+            top: 10px;
+            right: 10px;
+        }
+        #weaponLevel {
+            top: 40px;
+            right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <button id="shootButton">Tirer</button>
+    <button id="replayButton">Rejouer</button>
+    <div id="score">Score: 0</div>
+    <div id="weaponLevel">Arme: Niveau 1</div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const shootButton = document.getElementById('shootButton');
+        const replayButton = document.getElementById('replayButton');
+        const scoreElement = document.getElementById('score');
+        const weaponLevelElement = document.getElementById('weaponLevel');
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let ship;
+        let obstacles = [];
+        let bullets = [];
+        let explosions = [];
+        let score = 0;
+        let gameOver = false;
+        let weapon = 0;
+
+        const weapons = [
+            { name: "Simple", bulletCount: 1, angle: 0 },
+            { name: "Double", bulletCount: 2, angle: 0.2 },
+            { name: "Triple", bulletCount: 3, angle: 0.2 },
+            { name: "Quad", bulletCount: 4, angle: 0.2 },
+            { name: "Spread", bulletCount: 5, angle: 0.3 },
+            { name: "Circle", bulletCount: 8, angle: Math.PI / 4 },
+            { name: "Rapid", bulletCount: 1, angle: 0, fireRate: 5 },
+            { name: "Mega", bulletCount: 10, angle: 0.1 },
+        ];
+
+        // Fond d'écran
+        const background = new Image();
+        background.src = 'https://t3.ftcdn.net/jpg/01/58/50/74/240_F_158507455_D6tHVfFl14wHQP1G1c3RHaSP6nzJE4HH.jpg'; // Remplacez par l'URL de votre image de fond
+
+        class Ship {
+            constructor() {
+                this.width = 50;
+                this.height = 50;
+                this.x = canvas.width / 2 - this.width / 2;
+                this.y = canvas.height - this.height - 20;
+                this.speed = 5;
+                this.image = new Image();
+                this.image.src = 'https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1725311506023x697973143523055400/Sujet.png'; // Remplacez par l'URL de l'image du vaisseau
+            }
+
+            draw() {
+                ctx.drawImage(this.image, this.x, this.y, this.width, this.height);
+            }
+
+            move(direction) {
+                if (direction === 'left' && this.x > 0) {
+                    this.x -= this.speed;
+                } else if (direction === 'right' && this.x < canvas.width - this.width) {
+                    this.x += this.speed;
+                } else if (direction === 'up' && this.y > 0) {
+                    this.y -= this.speed;
+                } else if (direction === 'down' && this.y < canvas.height - this.height) {
+                    this.y += this.speed;
+                }
+            }
+
+            shoot() {
+                const currentWeapon = weapons[weapon];
+                for (let i = 0; i < currentWeapon.bulletCount; i++) {
+                    const angle = (i - (currentWeapon.bulletCount - 1) / 2) * currentWeapon.angle;
+                    bullets.push(new Bullet(this.x + this.width / 2, this.y, angle));
+                }
+            }
+        }
+
+        class Obstacle {
+            constructor() {
+                this.width = 30 + Math.random() * 50;
+                this.height = 30 + Math.random() * 50;
+                this.x = Math.random() * (canvas.width - this.width);
+                this.y = -this.height;
+                this.speed = 1 + Math.random() * 3;
+                this.color = `rgb(${Math.random() * 255},${Math.random() * 255},${Math.random() * 255})`;
+                this.value = Math.floor(Math.random() * 10) + 1;
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+                ctx.fillStyle = 'white';
+                ctx.font = '20px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(this.value, this.x + this.width / 2, this.y + this.height / 2);
+            }
+
+            update() {
+                this.y += this.speed;
+            }
+        }
+
+        class Bullet {
+            constructor(x, y, angle) {
+                this.x = x;
+                this.y = y;
+                this.radius = 5;
+                this.speed = 10;
+                this.angle = angle;
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = 'yellow';
+                ctx.fill();
+                ctx.closePath();
+            }
+
+            update() {
+                this.x += Math.sin(this.angle) * this.speed;
+                this.y -= Math.cos(this.angle) * this.speed;
+            }
+        }
+
+        class Explosion {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.radius = 1;
+                this.maxRadius = 30;
+                this.speed = 2;
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.closePath();
+            }
+
+            update() {
+                if (this.radius < this.maxRadius) {
+                    this.radius += this.speed;
+                } else {
+                    return true; // L'explosion est terminée
+                }
+                return false;
+            }
+        }
+
+        function init() {
+            ship = new Ship();
+            obstacles = [];
+            bullets = [];
+            explosions = [];
+            score = 0;
+            gameOver = false;
+            weapon = 0;
+            replayButton.style.display = 'none';
+            updateScore();
+            updateWeaponLevel();
+        }
+
+        function gameLoop() {
+            if (!gameOver) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // Dessiner le fond
+                ctx.drawImage(background, 0, 0, canvas.width, canvas.height);
+
+                ship.draw();
+
+                if (Math.random() < 0.02 + score / 10000) {
+                    obstacles.push(new Obstacle());
+                }
+
+                obstacles.forEach((obstacle, index) => {
+                    obstacle.draw();
+                    obstacle.update();
+
+                    if (obstacle.y > canvas.height) {
+                        obstacles.splice(index, 1);
+                    }
+
+                    if (collision(ship, obstacle)) {
+                        gameOver = true;
+                        replayButton.style.display = 'block';
+                    }
+                });
+
+                for (let i = bullets.length - 1; i >= 0; i--) {
+                    bullets[i].draw();
+                    bullets[i].update();
+
+                    if (bullets[i].y < 0) {
+                        bullets.splice(i, 1);
+                        continue;
+                    }
+
+                    for (let j = obstacles.length - 1; j >= 0; j--) {
+                        if (collisionBulletObstacle(bullets[i], obstacles[j])) {
+                            score += obstacles[j].value;
+                            updateScore();
+                            explosions.push(new Explosion(obstacles[j].x + obstacles[j].width / 2, obstacles[j].y + obstacles[j].height / 2, obstacles[j].color));
+                            obstacles.splice(j, 1);
+                            bullets.splice(i, 1);
+                            break;
+                        }
+                    }
+                }
+
+                if (score >= (weapon + 1) * 500 && weapon < weapons.length - 1) {
+                    weapon++;
+                    updateWeaponLevel();
+                }
+
+                explosions.forEach((explosion, index) => {
+                    explosion.draw();
+                    if (explosion.update()) {
+                        explosions.splice(index, 1);
+                    }
+                });
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function collision(obj1, obj2) {
+            return obj1.x < obj2.x + obj2.width &&
+                   obj1.x + obj1.width > obj2.x &&
+                   obj1.y < obj2.y + obj2.height &&
+                   obj1.y + obj1.height > obj2.y;
+        }
+
+        function collisionBulletObstacle(bullet, obstacle) {
+            return bullet.x - bullet.radius < obstacle.x + obstacle.width &&
+                   bullet.x + bullet.radius > obstacle.x &&
+                   bullet.y - bullet.radius < obstacle.y + obstacle.height &&
+                   bullet.y + bullet.radius > obstacle.y;
+        }
+
+        function updateScore() {
+            scoreElement.textContent = `Score: ${score}`;
+        }
+
+        function updateWeaponLevel() {
+            weaponLevelElement.textContent = `Arme: Niveau ${weapon + 1}`;
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') ship.move('left');
+            if (e.key === 'ArrowRight') ship.move('right');
+            if (e.key === 'ArrowUp') ship.move('up');
+            if (e.key === 'ArrowDown') ship.move('down');
+            if (e.key === ' ') ship.shoot();
+        });
+
+        let touchStartX, touchStartY;
+
+        canvas.addEventListener('touchstart', (e) => {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touchEndX = e.touches[0].clientX;
+            const touchEndY = e.touches[0].clientY;
+            const dx = touchEndX - touchStartX;
+            const dy = touchEndY - touchStartY;
+
+            if (Math.abs(dx) > Math.abs(dy)) {
+                ship.move(dx > 0 ? 'right' : 'left');
+            } else {
+                ship.move(dy > 0 ? 'down' : 'up');
+            }
+
+            touchStartX = touchEndX;
+            touchStartY = touchEndY;
+        });
+
+        shootButton.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            ship.shoot();
+        });
+
+        replayButton.addEventListener('click', () => {
+            init();
+        });
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+
+        init();
+        gameLoop();
+    </script>
+</body>
+</html>
